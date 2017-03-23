@@ -3,7 +3,7 @@ from skimage import data
 import matplotlib.pyplot as plt
 
 step = 2
-detectorsNumber = 120
+detectorsNumber = 241
 detectorWidth = 130
 
 
@@ -57,7 +57,7 @@ def radonCircleLoop(input, output, stepsArray, step, center, circleRadius, detec
                 output = BresenhamAlgorithm(input, emiterPos, receiverPos, output, returnOrDraw=False, lineColor=color)
     return output
 
-def radonTransform(input, stepSize=1, stepsArray=None, detectorsNumber=100, detectorsWidth=140, output=None):
+def radonTransform(input, stepSize=1, stepsArray=None, output=None, detectorsNumber=100, detectorsWidth=140):
     if stepsArray is None: stepsArray = np.arange(0,180,stepSize)
     xSize = int(180/stepSize+1)
 
@@ -68,6 +68,37 @@ def radonTransform(input, stepSize=1, stepsArray=None, detectorsNumber=100, dete
     output = radonCircleLoop(input,output, stepsArray, stepSize, center, circleRadius,detectorsNumber,detectorsWidth)
 
     output /= max(output.flatten()) #Normalizacja
+    return output
+
+
+#Filtracja
+def filterKernel(signal):
+    out = np.zeros(detectorsNumber)
+    middle = int(len(signal)/2)
+    out[middle]=1
+    for k in range(1,middle,2):
+        out[middle - k] = out[middle + k] = (-4 / np.square(np.pi) / np.square(k))
+    return out
+
+def convolution1D(signal, mask):
+    out = np.zeros(len(signal))
+    maskSize, signalSize = len(mask),len(signal)
+    for X in range(0,signalSize):
+        for h in range(-int(maskSize/2),int(maskSize/2+1)):
+            cX = X + h
+            if cX < 0: cX += signalSize
+            if cX >= signalSize: cX -= signalSize
+            out[X] += signal[cX] * mask[h + int(maskSize / 2)]
+    return out
+
+def fourierLoop(sinogram):
+    xSize, ySize = sinogram.shape
+    output = np.zeros(shape=(xSize, ySize))
+    for k in range(ySize):
+        signal = sinogram[:, k]
+        mask = filterKernel(signal)
+        filteredSignal = convolution1D(signal,mask)
+        output[:, k] = filteredSignal
     return output
 
 def inverseRadonTransform(input, stepSize=1, stepsArray=None, detectorsWidth=140, output=None, outputWidth=None, outputHeight=None):
@@ -99,11 +130,20 @@ def main():
     plt.title("Radon transform image")
 
     radonImage = radonTransform(inData, stepSize=step, detectorsNumber=detectorsNumber, detectorsWidth=detectorWidth)
+
     plt.imshow(radonImage, cmap='gray', extent=[0,180,len(radonImage),0], interpolation=None)
-    inverseRadonImage = inverseRadonTransform(radonImage, stepSize=step, detectorsWidth=detectorWidth)
+
+    plt.subplot(2,3,3)
+    fourier = fourierLoop(radonImage)
+    plt.imshow(fourier, cmap='gray', extent=[0,180,len(fourier),0], interpolation=None)
+    inverseRadonImage = inverseRadonTransform(fourier, stepSize=step, detectorsWidth=detectorWidth)
     plt.subplot(2, 3, 4)
     plt.title("Inverse Radon transform image")
     plt.imshow(inverseRadonImage, cmap='gray')
+
+    plt.subplot(2,3,5)
+    inverse = inverseRadonTransform(radonImage, stepSize=step, detectorsWidth=detectorWidth)
+    plt.imshow(inverse, cmap='gray')
 
     plt.show()
 

@@ -1,11 +1,31 @@
 import numpy as np
+from numpy.core.umath import rad2deg
 from skimage import data
+from matplotlib import cm
 import matplotlib.pyplot as plt
+from tkinter import *
+from PIL import Image, ImageTk
 
-step = 2
-detectorsNumber = 241
-detectorWidth = 130
+slave = Tk()
+master = Tk()
+iteracyjny = 0
 
+def get_values():
+    values = np.arange(3)
+    values[0] = stepSlider.get()
+    values[1]=detectorsNumberSlider.get()
+    if values[1]%2==0:
+        values[1] += 1
+    values[2]=detectorWidthSlider.get()
+    return values
+
+def update_image(array, label):
+    tmpArray = array/max(array.flatten())
+    tmpArray *= 255
+    tmpImage = Image.fromarray(tmpArray)
+    tmpPhoto = ImageTk.PhotoImage(tmpImage)
+    label.configure(image=tmpPhoto)
+    master.update()
 
 def BresenhamAlgorithm(input, A, B, output=None, moreThanZeroValues=True, returnOrDraw=True, lineColor=0.5):
     if returnOrDraw and output is None: output = []
@@ -35,7 +55,7 @@ def BresenhamAlgorithm(input, A, B, output=None, moreThanZeroValues=True, return
         while Y != Y2: X,Y,output = bresenhamLoop(X,Y,output)
     return output
 
-def radonCircleLoop(input, output, stepsArray, step, center, circleRadius, detectorsNumber, detectorsWidth, inverse=False):
+def radonCircleLoop(input,label, output, stepsArray, step, center, circleRadius, detectorsNumber, detectorsWidth, inverse=False):
     detectorDistance = (circleRadius * 2 * detectorsWidth / 180) / detectorsNumber
 
     for stepAngle in stepsArray:
@@ -55,9 +75,11 @@ def radonCircleLoop(input, output, stepsArray, step, center, circleRadius, detec
             else:
                 color = input[currentDetector, int(stepAngle/step)]
                 output = BresenhamAlgorithm(input, emiterPos, receiverPos, output, returnOrDraw=False, lineColor=color)
+        if(iteracyjny==1):
+            update_image(output, label)
     return output
 
-def radonTransform(input, stepSize=1, stepsArray=None, output=None, detectorsNumber=100, detectorsWidth=140):
+def radonTransform(input,label, stepSize=1, stepsArray=None, output=None, detectorsNumber=100, detectorsWidth=140):
     if stepsArray is None: stepsArray = np.arange(0,180,stepSize)
     xSize = int(180/stepSize+1)
 
@@ -65,14 +87,13 @@ def radonTransform(input, stepSize=1, stepsArray=None, output=None, detectorsNum
 
     circleRadius = np.sqrt(np.power(len(input)/2,2)+np.power(len(input[0])/2,2) )
     center = (len(input[0])/2,len(input)/2)
-    output = radonCircleLoop(input,output, stepsArray, stepSize, center, circleRadius,detectorsNumber,detectorsWidth)
+    output = radonCircleLoop(input, label, output, stepsArray, stepSize, center, circleRadius,detectorsNumber,detectorsWidth)
 
     output /= max(output.flatten()) #Normalizacja
     return output
 
-
 #Filtracja
-def filterKernel(signal):
+def filterKernel(signal,detectorsNumber):
     out = np.zeros(detectorsNumber)
     middle = int(len(signal)/2)
     out[middle]=1
@@ -91,17 +112,17 @@ def convolution1D(signal, mask):
             out[X] += signal[cX] * mask[h + int(maskSize / 2)]
     return out
 
-def fourierLoop(sinogram):
+def fourierLoop(sinogram,detectorsNumber):
     xSize, ySize = sinogram.shape
     output = np.zeros(shape=(xSize, ySize))
     for k in range(ySize):
         signal = sinogram[:, k]
-        mask = filterKernel(signal)
+        mask = filterKernel(signal, detectorsNumber=detectorsNumber)
         filteredSignal = convolution1D(signal,mask)
         output[:, k] = filteredSignal
     return output
 
-def inverseRadonTransform(input, stepSize=1, stepsArray=None, detectorsWidth=140, output=None, outputWidth=None, outputHeight=None):
+def inverseRadonTransform(input, label, stepSize=1, stepsArray=None, detectorsWidth=140, output=None, outputWidth=None, outputHeight=None):
     if stepsArray is None: stepsArray = np.arange(0,181, stepSize)
     if output is None:
         if outputHeight is None: outputHeight = len(input)
@@ -110,43 +131,111 @@ def inverseRadonTransform(input, stepSize=1, stepsArray=None, detectorsWidth=140
 
     circleRadius = np.sqrt(np.power(outputWidth/2,2)+np.power(outputHeight/2,2) )
     center = (outputWidth/2,outputHeight/2)
-    output = radonCircleLoop(input,output, stepsArray, stepSize, center,circleRadius,len(input),detectorsWidth,inverse=True)
+    output = radonCircleLoop(input,label, output, stepsArray, stepSize, center,circleRadius,len(input),detectorsWidth,inverse=True)
 
     output -= min(output.flatten())
     output /= max(output.flatten())
 
     return output
 
-def main():
+def calculate():
+    parameters = get_values()
+    step = parameters[0]
+    detectorsNumber = parameters[1]
+    detectorWidth = parameters[2]
+
+    show_slave()
     inData = data.imread("resources/in.png", as_grey=True)
 
-    plt.subplot(2, 3, 1)
-    plt.title("Original image")
-    plt.imshow(inData, cmap='gray')
+    inputImage = Image.open('resources/in.png')
+    resized = inputImage.resize((150, 150), Image.ANTIALIAS)
+    photo = ImageTk.PhotoImage(resized)
+    l5.configure(image=photo)
+    master.update_idletasks()
 
-    plt.subplot(2, 3, 2)
-    plt.xlabel("Emiter/detector rotation")
-    plt.ylabel("Number of receiver")
-    plt.title("Radon transform image")
+    radonImage = radonTransform(inData, l10, stepSize=step, detectorsNumber=detectorsNumber, detectorsWidth=detectorWidth)
 
-    radonImage = radonTransform(inData, stepSize=step, detectorsNumber=detectorsNumber, detectorsWidth=detectorWidth)
+    radonImage*=255.0
+    radon = Image.fromarray(radonImage)
+    radonPhoto = ImageTk.PhotoImage(radon)
+    l10.configure(image=radonPhoto)
+    master.update_idletasks()
 
-    plt.imshow(radonImage, cmap='gray', extent=[0,180,len(radonImage),0], interpolation=None)
+    fourier = fourierLoop(radonImage, detectorsNumber=detectorsNumber)
 
-    plt.subplot(2,3,3)
-    fourier = fourierLoop(radonImage)
-    plt.imshow(fourier, cmap='gray', extent=[0,180,len(fourier),0], interpolation=None)
-    inverseRadonImage = inverseRadonTransform(fourier, stepSize=step, detectorsWidth=detectorWidth)
-    plt.subplot(2, 3, 4)
-    plt.title("Inverse Radon transform image")
-    plt.imshow(inverseRadonImage, cmap='gray')
+    filtered=Image.fromarray(fourier)
+    filteredPhoto = ImageTk.PhotoImage(filtered)
+    l11.configure(image = filteredPhoto)
+    master.update()
 
-    plt.subplot(2,3,5)
-    inverse = inverseRadonTransform(radonImage, stepSize=step, detectorsWidth=detectorWidth)
-    plt.imshow(inverse, cmap='gray')
+    inverseRadonImage = inverseRadonTransform(radonImage, l12, stepSize=step, detectorsWidth=detectorWidth)
 
-    plt.show()
+    inverseRadonImage*=255
+    inv = Image.fromarray(inverseRadonImage)
+    invPhoto = ImageTk.PhotoImage(inv)
+    l12.configure(image = invPhoto)
+    master.update()
 
+    inverseFiltered = inverseRadonTransform(fourier, l13, stepSize=step, detectorsWidth=detectorWidth)
+
+    inverseFiltered*=255
+    invFil = Image.fromarray(inverseFiltered)
+    invFilPhoto = ImageTk.PhotoImage(invFil)
+    l13.configure(image=invFilPhoto)
+    master.update()
+    input("Press any key to clear")
+
+def show_slave():
+    l4.grid(row=0, column=0)
+    l5.grid(row=0, column=1)
+    l6.grid(row=1, column=0)
+    l10.grid(row=1, column=1)
+    l7.grid(row=2, column=0)
+    l11.grid(row=2, column=1)
+    l8.grid(row=3, column=0)
+    l12.grid(row=3, column=1)
+    l9.grid(row=4, column=0)
+    l13.grid(row=4, column=1)
+
+def calculate_immediately():
+    global iteracyjny
+    iteracyjny = 0
+    calculate()
+
+def calculate_iterative():
+    global iteracyjny
+    iteracyjny = 1
+    calculate()
+
+l4 = Label(slave,justify=LEFT,padx = 10,text="Obraz wejściowy")
+l5 = Label(slave)
+l6 = Label(slave,justify=LEFT,padx = 10,text="Sinogram")
+l10 = Label(slave)
+l7 = Label(slave,justify=LEFT,padx = 10,text="Sinogram po filtracji")
+l11= Label(slave)
+l8 = Label(slave,justify=LEFT,padx = 10,text="Obraz wyjściowy")
+l12= Label(slave)
+l9 = Label(slave,justify=LEFT,padx = 10,text="Obraz wyjściowy po filtracji")
+l13= Label(slave)
+
+l1 = Label(master,justify=LEFT,padx = 10,text="Liczba detektorów (tylko nieparzyste)").pack()
+detectorsNumberSlider = Scale(master, from_=101,to=251, orient=HORIZONTAL)
+detectorsNumberSlider.pack()
+l2 = Label(master,justify=LEFT,padx = 10,text="Szerokość kątowa detektorów").pack()
+detectorWidthSlider = Scale(master, from_=90, to=150, orient=HORIZONTAL)
+detectorWidthSlider.pack()
+l3 = Label(master,justify=LEFT,padx = 10,text="Kąt obrotu tomografu").pack()
+stepSlider = Scale(master, from_=1, to=5, orient=HORIZONTAL)
+stepSlider.pack()
+l14 = Label(master,justify=LEFT,padx=10,text="Wybierz sposób obliczeń :").pack()
+calculateButton = Button(master, text="Wykonaj obliczenia natychmiastowo", command=calculate_immediately)
+calculateButton.pack()
+bbutton = Button(master, text="Wykonaj obliczenia iteracyjnie", command=calculate_iterative)
+bbutton.pack()
+
+
+def main():
+    master.mainloop()
 
 if __name__ == "__main__":
     main()

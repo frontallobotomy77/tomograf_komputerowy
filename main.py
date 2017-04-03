@@ -1,10 +1,13 @@
 import numpy as np
+import skimage
 from numpy.core.umath import rad2deg
 from skimage import data
 from matplotlib import cm
 import matplotlib.pyplot as plt
 from tkinter import *
 from PIL import Image, ImageTk
+from dicom.dataset import Dataset, FileDataset
+import datetime
 
 slave = Tk()
 master = Tk()
@@ -138,6 +141,51 @@ def inverseRadonTransform(input, label, stepSize=1, stepsArray=None, detectorsWi
 
     return output
 
+def saveDicomFile(filename, patientName, patientId, gender, birthday, imageArray, transpose=False):
+
+    meta = Dataset()
+    SOPClassUID = "1.2.840.10008.5.1.4.1.1.2"
+    meta.MediaStorageSOPClassUID = SOPClassUID
+    date=datetime.datetime.now().strftime('%Y%m%d')
+    time=datetime.datetime.now().strftime('%H%M%S.%f')
+    randomUId = SOPClassUID + "."+date+time
+    meta.MediaStorageSOPInstanceUID = randomUId
+    meta.ImplementationClassUID = randomUId+"."+"1"
+
+    dataSet = FileDataset(filename, {}, file_meta=meta, preamble=b"\0"*128)
+    dataSet.PatientName = patientName
+    dataSet.PatientID=patientId
+    dataSet.PatientBirthDate = birthday
+    dataSet.PatientSex = gender
+    dataSet.is_little_endian=True
+    dataSet.is_implicit_VR=True
+    dataSet.ContentDate = date
+    dataSet.StudyDate = date
+    dataSet.StudyTime = time
+    dataSet.ContentTime=time
+    dataSet.StudyInstanceUID = randomUId+"."+"2"
+    dataSet.SeriesInstanceUID = randomUId+"."+"3"
+    dataSet.SOPInstanceUID = randomUId+"."+"4"
+    dataSet.SOPClassUID = "CT."+date+time
+
+    dataSet.SamplesPerPixel = 1
+    dataSet.PhotometricInterpretation = "MONOCHROME2"
+    dataSet.PixelRepresentation = 0
+    dataSet.HighBit = 15
+    dataSet.BitsStored = 16
+    dataSet.BitsAllocated = 16
+    dataSet.SmallestImagePixelValue = b'\\x00\\x00'
+    dataSet.LargestImagePixelValue = b'\\xff\\xff'
+    dataSet.Rows = imageArray.shape[1]
+    dataSet.Columns = imageArray.shape[0]
+    if imageArray.dtype != np.uint16:
+        imageArray = skimage.img_as_uint(imageArray)
+        if transpose == True:
+            dataSet.Rows = imageArray.shape[0]
+            dataSet.Columns = imageArray.shape[1]
+    dataSet.PixelData = imageArray.tostring()
+    dataSet.save_as(filename)
+
 def calculate():
     parameters = get_values()
     step = parameters[0]
@@ -177,6 +225,7 @@ def calculate():
     master.update()
 
     inverseFiltered = inverseRadonTransform(fourier, l13, stepSize=step, detectorsWidth=detectorWidth)
+    saveDicomFile("out.dcm", "Andrzej", "1234", "male", "20070304", inverseFiltered)
 
     inverseFiltered*=255
     invFil = Image.fromarray(inverseFiltered)
